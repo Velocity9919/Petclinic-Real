@@ -51,11 +51,11 @@ pipeline{
         }
         
         stage("quality gate"){
-           steps {
-                 script {
-                     waitForQualityGate abortPipeline: false, credentialsId: 'Sonar-token' 
-                    }
-                } 
+            steps {
+                script {
+                    waitForQualityGate abortPipeline: false, credentialsId: 'Sonar-token' 
+                }
+            } 
         }
         
         stage("OWASP Dependency Check"){
@@ -83,9 +83,11 @@ pipeline{
             }
         }
 
-        stage('Deploy to conatiner'){
+        stage("deploy to tomcat"){
             steps{
-                sh 'docker run -d --name pet1 -p 8082:8080 nareshbabu1991/petclinic1:latest'
+                sshagent(['tomcat-privatekey']) {
+                    sh "scp -o StrictHostKeyChecking=no target/spring-petclinic-1.24.war ubuntu@172.31.36.254:/opt/tomcat/webapps"
+                }
             }
 
             post {
@@ -95,7 +97,7 @@ pipeline{
                     body: "Project: ${env.JOB_NAME}<br/>" +
                     "Build Number: ${env.BUILD_NUMBER}<br/>" +
                     "URL: ${env.BUILD_URL}<br/>",
-                    to: 'postbox.aj99@gmail.com',
+                    to: 'ynareshbabu1991@gmail.com',
                     attachmentsPattern: 'trivy.txt'
                 }
             }
