@@ -1,0 +1,104 @@
+pipeline{
+    agent any
+    tools{
+        jdk 'jdk11'
+        maven 'maven3'
+    }
+    environment {
+        SCANNER_HOME=tool 'sonar-scanner'
+    }
+    
+    stages {
+        
+        stage('clean workspace'){
+            steps{
+                cleanWs()
+            }
+        }
+        
+        stage('Checkout From Git'){
+            steps{
+                git branch: 'main', url: 'https://github.com/Velocity9919/spring-petclinic.git'
+            }
+        }
+        
+        stage('mvn compile'){
+            steps{
+                sh 'mvn clean compile'
+            }
+        }
+        
+        stage('mvn test'){
+            steps{
+                sh 'mvn test'
+            }
+        }
+        
+         stage('mvn build'){
+            steps{
+                sh 'mvn clean install'
+            }
+        }
+        
+        stage("Sonarqube Analysis "){
+            steps{
+                withSonarQubeEnv('sonar-server') {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Petclinic \
+                    -Dsonar.java.binaries=. \
+                    -Dsonar.projectKey=Petclinic '''
+                }
+            }
+        }
+        
+        stage("quality gate"){
+           steps {
+                 script {
+                     waitForQualityGate abortPipeline: false, credentialsId: 'Sonar-token' 
+                    }
+                } 
+        }
+        
+        stage("OWASP Dependency Check"){
+            steps{
+                dependencyCheck additionalArguments: '--scan ./ ', odcInstallation: 'DP-Check'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        
+        stage("Docker Build & Push"){
+            steps{
+                script{
+                   withDockerRegistry(credentialsId: 'dockerhub-cred', toolName: 'docker'){   
+                       sh "docker build -t petclinic1 ."
+                       sh "docker tag petclinic1 nareshbabu1991/petclinic1:latest "
+                       sh "docker push nareshbabu1991/petclinic1:latest "
+                    }
+                }
+            }
+        }
+        
+        stage("TRIVY"){
+            steps{
+                sh "trivy image nareshbabu1991/petclinic1:latest > trivy.txt" 
+            }
+        }
+
+        stage('Deploy to conatiner'){
+            steps{
+                sh 'docker run -d --name pet1 -p 8082:8080 nareshbabu1991/petclinic1:latest'
+            }
+
+            post {
+                always {
+                    emailext attachLog : true,
+                    subject: "'${currentBuild.result}'",
+                    body: "Project: ${env.JOB_NAME}<br/>" +
+                    "Build Number: ${env.BUILD_NUMBER}<br/>" +
+                    "URL: ${env.BUILD_URL}<br/>",
+                    to: 'postbox.aj99@gmail.com',
+                    attachmentsPattern: 'trivy.txt'
+                }
+            }
+        } 
+    }
+}
